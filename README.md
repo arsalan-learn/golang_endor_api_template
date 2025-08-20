@@ -1,0 +1,1 @@
+# golang_endor_api_template
