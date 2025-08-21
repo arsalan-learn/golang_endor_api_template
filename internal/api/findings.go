@@ -12,16 +12,23 @@ import (
 type Finding struct {
 	UUID string `json:"uuid"`
 	Meta struct {
-		Name        string `json:"name"`
 		Description string `json:"description"`
-		CreateTime  string `json:"create_time"`
-		UpdateTime  string `json:"update_time"`
-		Kind        string `json:"kind"`
-		ParentKind  string `json:"parent_kind"`
+		Name        string `json:"name"`
 		ParentUUID  string `json:"parent_uuid"`
 	} `json:"meta"`
 	Spec struct {
-		ProjectUUID string `json:"project_uuid"`
+		Approximation               bool              `json:"approximation"`
+		DependencyFilePath          []string          `json:"dependency_file_paths"`
+		Ecosystem                   string            `json:"ecosystem"`
+		Explanation                 string            `json:"explanation"`
+		FindingCategories           []string          `json:"finding_categories"`
+		FindingTags                 []string          `json:"finding_tags"`
+		Level                       string            `json:"level"`
+		LocationUrls                map[string]string `json:"location_urls"`
+		ProjectUUID                 string            `json:"project_uuid"`
+		Relationship                string            `json:"relationship"`
+		Summary                     string            `json:"summary"`
+		TargetDependencyPackageName string            `json:"target_dependency_package_name"`
 	} `json:"spec"`
 }
 
@@ -68,11 +75,17 @@ func (c *Client) GetFindings(token, projectUUID string) ([]Finding, error) {
 func (c *Client) getFindingsPage(token, projectUUID string, pageSize int) ([]Finding, string, bool, error) {
 	baseURL := fmt.Sprintf("%s/namespaces/%s/findings", BaseURL, c.namespace)
 
-	// Create query parameters using correct format from endorctl example
+	// Create query parameters using the exact working filter from endorctl
 	params := url.Values{}
-	params.Set("list_parameters.filter", fmt.Sprintf("spec.project_uuid==%s", projectUUID))
-	params.Set("list_parameters.mask", "meta,spec.project_uuid")
+
+	// Exact filter from the working endorctl command
+	complexFilter := fmt.Sprintf(`spec.project_uuid==%s and context.type == "CONTEXT_TYPE_MAIN" and (spec.level in ["FINDING_LEVEL_CRITICAL"] and spec.finding_tags not contains ["FINDING_TAGS_EXCEPTION"] and spec.finding_categories contains ["FINDING_CATEGORY_VULNERABILITY"] and (spec.finding_tags contains ["FINDING_TAGS_POTENTIALLY_REACHABLE_FUNCTION","FINDING_TAGS_REACHABLE_FUNCTION"] and spec.finding_tags contains ["FINDING_TAGS_REACHABLE_DEPENDENCY"] and spec.finding_tags contains ["FINDING_TAGS_FIX_AVAILABLE"] and spec.finding_tags contains ["FINDING_TAGS_NORMAL"]) and spec.finding_metadata.vulnerability.spec.epss_score.probability_score >= 0.01)`, projectUUID)
+
+	params.Set("list_parameters.filter", complexFilter)
+	// Use the exact field mask from the working endorctl command
+	params.Set("list_parameters.mask", "meta.description,meta.name,meta.parent_uuid,spec.approximation,spec.dependency_file_paths,spec.ecosystem,spec.explanation,spec.finding_categories,spec.finding_tags,spec.level,spec.location_urls,spec.project_uuid,spec.relationship,spec.summary,spec.target_dependency_package_name")
 	params.Set("list_parameters.page_size", fmt.Sprintf("%d", pageSize))
+	params.Set("list_parameters.traverse", "true") // Enable searching through child namespaces
 
 	// Add the query string to the URL
 	fullURL := baseURL + "?" + params.Encode()
