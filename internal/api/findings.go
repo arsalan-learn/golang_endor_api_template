@@ -193,9 +193,6 @@ func (c *Client) getFindingsPageForAllProjects(token string, pageSize int, pageI
 	// Add page_id for pagination if provided (this should be the next_page_id from previous response)
 	if pageID != "" {
 		params.Set("list_parameters.page_id", pageID)
-		log.Printf("DEBUG: Using page_id: %s", pageID)
-	} else {
-		log.Printf("DEBUG: No page_id (first page)")
 	}
 
 	// Add the query string to the URL
@@ -223,10 +220,6 @@ func (c *Client) getFindingsPageForAllProjects(token string, pageSize int, pageI
 	if err := json.NewDecoder(resp.Body).Decode(&findingsResp); err != nil {
 		return nil, "", false, fmt.Errorf("failed to decode response: %w", err)
 	}
-
-	// Debug: Show what the API actually returned
-	log.Printf("DEBUG: API returned %d findings, next_page_id: '%s'",
-		len(findingsResp.List.Objects), findingsResp.List.Response.NextPageID)
 
 	// Check if there are more pages by looking at next_page_id
 	hasMore := findingsResp.List.Response.NextPageID != ""
