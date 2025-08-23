@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // Finding represents a security finding from Endor Labs
@@ -82,19 +83,63 @@ func (c *Client) GetFindings(token, projectUUID string) ([]Finding, error) {
 	return allFindings, nil
 }
 
-// getFindingsPage retrieves a single page of findings
-func (c *Client) getFindingsPage(token, projectUUID string, pageSize int, pageID string) ([]Finding, string, bool, error) {
+// buildFindingsFilter creates the filter string for findings queries
+func (c *Client) buildFindingsFilter(projectUUID string) string {
+	template := `context.type == "CONTEXT_TYPE_MAIN" and (
+		spec.level in ["FINDING_LEVEL_CRITICAL"] and 
+		spec.finding_tags not contains ["FINDING_TAGS_EXCEPTION"] and 
+		spec.finding_categories contains ["FINDING_CATEGORY_VULNERABILITY"] and 
+		(spec.finding_tags contains ["FINDING_TAGS_POTENTIALLY_REACHABLE_FUNCTION","FINDING_TAGS_REACHABLE_FUNCTION"] and 
+		spec.finding_tags contains ["FINDING_TAGS_REACHABLE_DEPENDENCY"] and 
+		spec.finding_tags contains ["FINDING_TAGS_FIX_AVAILABLE"] and 
+		spec.finding_tags contains ["FINDING_TAGS_NORMAL"]) and 
+		spec.finding_metadata.vulnerability.spec.epss_score.probability_score >= 0.01
+	)`
+
+	// Clean up whitespace and newlines to create a clean single-line filter
+	baseFilter := strings.ReplaceAll(strings.ReplaceAll(template, "\n", ""), "\t", "")
+
+	if projectUUID != "" {
+		return fmt.Sprintf("spec.project_uuid==%s and %s", projectUUID, baseFilter)
+	}
+	return baseFilter
+}
+
+// getFindingsFieldMask returns the field mask for findings queries
+func (c *Client) getFindingsFieldMask() string {
+	template := `meta.description,
+		meta.name,
+		meta.parent_uuid,
+		spec.approximation,
+		spec.dependency_file_paths,
+		spec.ecosystem,
+		spec.explanation,
+		spec.finding_categories,
+		spec.finding_tags,
+		spec.level,
+		spec.location_urls,
+		spec.project_uuid,
+		spec.relationship,
+		spec.summary,
+		spec.target_dependency_package_name`
+
+	// Clean up whitespace and newlines to create a clean single-line field mask
+	return strings.ReplaceAll(strings.ReplaceAll(template, "\n", ""), "\t", "")
+}
+
+// getFindingsPageInternal handles the common logic for retrieving a single page of findings
+func (c *Client) getFindingsPageInternal(token, projectUUID string, pageSize int, pageID string) ([]Finding, string, bool, error) {
 	baseURL := fmt.Sprintf("%s/namespaces/%s/findings", BaseURL, c.namespace)
 
-	// Create query parameters using the exact working filter from endorctl
+	// Create query parameters
 	params := url.Values{}
 
-	// Exact filter from the working endorctl command
-	complexFilter := fmt.Sprintf(`spec.project_uuid==%s and context.type == "CONTEXT_TYPE_MAIN" and (spec.level in ["FINDING_LEVEL_CRITICAL"] and spec.finding_tags not contains ["FINDING_TAGS_EXCEPTION"] and spec.finding_categories contains ["FINDING_CATEGORY_VULNERABILITY"] and (spec.finding_tags contains ["FINDING_TAGS_POTENTIALLY_REACHABLE_FUNCTION","FINDING_TAGS_REACHABLE_FUNCTION"] and spec.finding_tags contains ["FINDING_TAGS_REACHABLE_DEPENDENCY"] and spec.finding_tags contains ["FINDING_TAGS_FIX_AVAILABLE"] and spec.finding_tags contains ["FINDING_TAGS_NORMAL"]) and spec.finding_metadata.vulnerability.spec.epss_score.probability_score >= 0.01)`, projectUUID)
+	// Build the complex filter using the shared function
+	complexFilter := c.buildFindingsFilter(projectUUID)
 
 	params.Set("list_parameters.filter", complexFilter)
-	// Use the exact field mask from the working endorctl command
-	params.Set("list_parameters.mask", "meta.description,meta.name,meta.parent_uuid,spec.approximation,spec.dependency_file_paths,spec.ecosystem,spec.explanation,spec.finding_categories,spec.finding_tags,spec.level,spec.location_urls,spec.project_uuid,spec.relationship,spec.summary,spec.target_dependency_package_name")
+	// Use the shared field mask function
+	params.Set("list_parameters.mask", c.getFindingsFieldMask())
 	params.Set("list_parameters.page_size", fmt.Sprintf("%d", pageSize))
 	params.Set("list_parameters.traverse", "true") // Enable searching through child namespaces
 
@@ -133,6 +178,11 @@ func (c *Client) getFindingsPage(token, projectUUID string, pageSize int, pageID
 	hasMore := findingsResp.List.Response.NextPageID != ""
 
 	return findingsResp.List.Objects, findingsResp.List.Response.NextPageID, hasMore, nil
+}
+
+// getFindingsPage retrieves a single page of findings
+func (c *Client) getFindingsPage(token, projectUUID string, pageSize int, pageID string) ([]Finding, string, bool, error) {
+	return c.getFindingsPageInternal(token, projectUUID, pageSize, pageID)
 }
 
 // GetFindingsForAllProjects retrieves findings for all projects (without project_uuid filter)
@@ -176,53 +226,5 @@ func (c *Client) GetFindingsForAllProjects(token string) ([]Finding, error) {
 
 // getFindingsPageForAllProjects retrieves a single page of findings for all projects
 func (c *Client) getFindingsPageForAllProjects(token string, pageSize int, pageID string) ([]Finding, string, bool, error) {
-	baseURL := fmt.Sprintf("%s/namespaces/%s/findings", BaseURL, c.namespace)
-
-	// Create query parameters using the same filter but WITHOUT project_uuid
-	params := url.Values{}
-
-	// Filter for all projects (removed spec.project_uuid requirement) - updated to include both CRITICAL and HIGH
-	complexFilter := `context.type == "CONTEXT_TYPE_MAIN" and (spec.level in ["FINDING_LEVEL_CRITICAL","FINDING_LEVEL_HIGH"] and spec.finding_tags not contains ["FINDING_TAGS_EXCEPTION"] and spec.finding_categories contains ["FINDING_CATEGORY_VULNERABILITY"] and (spec.finding_tags contains ["FINDING_TAGS_POTENTIALLY_REACHABLE_FUNCTION","FINDING_TAGS_REACHABLE_FUNCTION"] and spec.finding_tags contains ["FINDING_TAGS_REACHABLE_DEPENDENCY"] and spec.finding_tags contains ["FINDING_TAGS_FIX_AVAILABLE"] and spec.finding_tags contains ["FINDING_TAGS_NORMAL"]) and spec.finding_metadata.vulnerability.spec.epss_score.probability_score >= 0.01)`
-
-	params.Set("list_parameters.filter", complexFilter)
-	// Use the exact field mask from the working endorctl command
-	params.Set("list_parameters.mask", "meta.description,meta.name,meta.parent_uuid,spec.approximation,spec.dependency_file_paths,spec.ecosystem,spec.explanation,spec.finding_categories,spec.finding_tags,spec.level,spec.location_urls,spec.project_uuid,spec.relationship,spec.summary,spec.target_dependency_package_name")
-	params.Set("list_parameters.page_size", fmt.Sprintf("%d", pageSize))
-	params.Set("list_parameters.traverse", "true") // Enable searching through child namespaces
-
-	// Add page_id for pagination if provided (this should be the next_page_id from previous response)
-	if pageID != "" {
-		params.Set("list_parameters.page_id", pageID)
-	}
-
-	// Add the query string to the URL
-	fullURL := baseURL + "?" + params.Encode()
-
-	req, err := http.NewRequest("GET", fullURL, nil)
-	if err != nil {
-		return nil, "", false, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Request-Timeout", "600")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, "", false, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", false, fmt.Errorf("failed to fetch findings with status: %d", resp.StatusCode)
-	}
-
-	var findingsResp FindingsListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&findingsResp); err != nil {
-		return nil, "", false, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// Check if there are more pages by looking at next_page_id
-	hasMore := findingsResp.List.Response.NextPageID != ""
-
-	return findingsResp.List.Objects, findingsResp.List.Response.NextPageID, hasMore, nil
+	return c.getFindingsPageInternal(token, "", pageSize, pageID)
 }

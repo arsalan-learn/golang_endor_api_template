@@ -24,11 +24,19 @@ cp env.example .env
 go run . --project_uuid <your_project_uuid>
 ```
 
-## Example
+## Examples
 
+### Fetch findings for a specific project:
 ```bash
 go run . --project_uuid abc123-def456-ghi789
 ```
+
+### Fetch findings from all projects:
+```bash
+go run . --all-projects
+```
+
+**Note**: The `--all-projects` flag will fetch findings from all projects in your namespace, including both CRITICAL and HIGH level findings. When using `--project_uuid`, only CRITICAL level findings are returned.
 
 ## Environment Variables
 
