@@ -87,6 +87,7 @@ func (c *Client) GetFindings(token, projectUUID string) ([]Finding, error) {
 func (c *Client) buildFindingsFilter(projectUUID string) string {
 	template := `context.type == "CONTEXT_TYPE_MAIN" and (
 		spec.level in ["FINDING_LEVEL_CRITICAL"] and 
+		spec.approximation == false and 
 		spec.finding_tags not contains ["FINDING_TAGS_EXCEPTION"] and 
 		spec.finding_categories contains ["FINDING_CATEGORY_VULNERABILITY"] and 
 		(spec.finding_tags contains ["FINDING_TAGS_POTENTIALLY_REACHABLE_FUNCTION","FINDING_TAGS_REACHABLE_FUNCTION"] and 
